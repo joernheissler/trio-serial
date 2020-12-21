@@ -5,7 +5,7 @@ for `trio <https://github.com/python-trio/trio>`__.
 
 Installation
 ------------
-.. code-block:: console:
+.. code-block:: console
 
     $ pip install trio-serial
 
