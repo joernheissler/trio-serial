@@ -1,15 +1,33 @@
 [tool.poetry]
 name = "trio-serial"
 version = "0.1.0"
-description = ""
+description = "Serial package for trio"
 authors = ["Jörn Heissler <nosuchaddress@joern-heissler.de>"]
+readme = "README.rst"
+homepage = "https://github.com/joernheissler/trio-serial"
+repository = "https://github.com/joernheissler/trio-serial"
+documentation = "https://trio-serial.1e8.de/"
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.7"
+trio = "^0.17.0"
+Sphinx = { version = "^3.4.0", optional = true }
+sphinx-rtd-theme = { version = "^0.5.0", optional = true }
+sphinxcontrib-trio = { version = "^1.1.2", optional = true }
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
 
+[tool.poetry.extras]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+    "sphinxcontrib-trio",
+]
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 96

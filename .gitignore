@@ -1,3 +1,5 @@
 dist
 *.swp
 *.pyc
+venv
+poetry.lock
