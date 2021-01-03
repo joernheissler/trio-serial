@@ -52,6 +52,19 @@ class PosixSerialStream(AbstractSerialStream):
     # File descriptor for the serial device. `None` iff closed.
     _fd: Optional[int] = None
 
+    @property
+    def fd(self) -> int:
+        """
+        Get file descriptor of serial port or raise exception if closed.
+
+        Raises:
+            ClosedResourceError: If closed
+        """
+        if self._fd is None:
+            raise ClosedResourceError("Port is closed.")
+
+        return self._fd
+
     async def aclose(self) -> None:
         """
         Close the port. Do nothing if already closed.
@@ -93,19 +106,13 @@ class PosixSerialStream(AbstractSerialStream):
         Returns:
             Number of bytes actually written.
         """
-        if self._fd is None:
-            raise ClosedResourceError("Port is closed.")
-
-        return os.write(self._fd, data)
+        return os.write(self.fd, data)
 
     async def _wait_writable(self) -> None:
         """
         Wait until serial port is writable.
         """
-        if self._fd is None:
-            raise ClosedResourceError("Port is closed.")
-
-        await trio.lowlevel.wait_writable(self._fd)
+        await trio.lowlevel.wait_writable(self.fd)
 
     async def _recv(self, max_bytes: Optional[int]) -> bytes:
         """
@@ -114,11 +121,8 @@ class PosixSerialStream(AbstractSerialStream):
         Returns:
             Received data
         """
-        if self._fd is None:
-            raise ClosedResourceError("Port is closed.")
-
-        await trio.lowlevel.wait_readable(self._fd)
-        return os.read(self._fd, max_bytes or 4096)
+        await trio.lowlevel.wait_readable(self.fd)
+        return os.read(self.fd, max_bytes or 4096)
 
     async def get_cts(self) -> bool:
         """
@@ -146,15 +150,12 @@ class PosixSerialStream(AbstractSerialStream):
             bit: Modem bit constant as byte string
             value: new state
         """
-        if self._fd is None:
-            raise ClosedResourceError("Port is closed.")
-
         if value:
             cmd = TIOCMBIS
         else:
             cmd = TIOCMBIC
 
-        fcntl.ioctl(self._fd, cmd, bit)
+        fcntl.ioctl(self.fd, cmd, bit)
 
     def _get_bit(self, bit: int) -> bool:
         """
@@ -166,10 +167,7 @@ class PosixSerialStream(AbstractSerialStream):
         Returns:
             Current state
         """
-        if self._fd is None:
-            raise ClosedResourceError("Port is closed.")
-
-        buf = fcntl.ioctl(self._fd, TIOCMGET, BUF_ZERO)
+        buf = fcntl.ioctl(self.fd, TIOCMGET, BUF_ZERO)
         value = unpack("@I", buf)[0]
         return bool(value & bit)
 
@@ -180,20 +178,19 @@ class PosixSerialStream(AbstractSerialStream):
         Args:
             force_update: Set the parameters, even if did not change?
         """
-        if self._fd is None:
-            raise ClosedResourceError("Port is closed.")
+        fd = self.fd
 
         # Lock port
         if self._exclusive:
             try:
-                fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except IOError as ex:
                 raise IOError(f"Could not exclusively lock port {self._port!r}: {ex!s}") from ex
         else:
-            fcntl.flock(self._fd, fcntl.LOCK_UN)
+            fcntl.flock(fd, fcntl.LOCK_UN)
 
         # Retrieve current attributes
-        orig_attr = termios.tcgetattr(self._fd)
+        orig_attr = termios.tcgetattr(fd)
         iflag, oflag, cflag, lflag, ispeed, ospeed, cc = orig_attr
 
         # Set up raw mode / no echo / binary
@@ -307,13 +304,13 @@ class PosixSerialStream(AbstractSerialStream):
         new_attr = [iflag, oflag, cflag, lflag, ispeed, ospeed, cc]
 
         if force_update or new_attr != orig_attr:
-            termios.tcsetattr(self._fd, termios.TCSANOW, new_attr)
+            termios.tcsetattr(fd, termios.TCSANOW, new_attr)
 
         # apply custom baud rate, if any
         if custom_baud:
-            self._set_special_baudrate()
+            self._set_special_baudrate(fd)
 
-    def _set_special_baudrate(self) -> None:
+    def _set_special_baudrate(self, fd: int) -> None:
         """
         Implemented by sub classes
         """

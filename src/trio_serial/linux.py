@@ -69,18 +69,15 @@ class LinuxSerialStream(PosixSerialStream):
         4000000: 0o010017,
     }
 
-    def _set_special_baudrate(self) -> None:
+    def _set_special_baudrate(self, fd: int) -> None:
         """
         Set custom baudrate
         """
-        if self._fd is None:
-            raise ClosedResourceError("Port is closed.")
-
         # right size is 44 on x86_64, allow for some growth
         buf = array.array("i", [0] * 64)
         try:
             # get serial_struct
-            fcntl.ioctl(self._fd, self.TCGETS2, buf)
+            fcntl.ioctl(fd, self.TCGETS2, buf)
 
             # set custom speed
             buf[2] &= ~termios.CBAUD
@@ -88,6 +85,6 @@ class LinuxSerialStream(PosixSerialStream):
             buf[9] = buf[10] = self._baudrate
 
             # set serial_struct
-            fcntl.ioctl(self._fd, self.TCSETS2, buf)
+            fcntl.ioctl(fd, self.TCSETS2, buf)
         except IOError as ex:
             raise ValueError(f"Failed to set custom baud rate {self._baudrate}: {ex!s}")

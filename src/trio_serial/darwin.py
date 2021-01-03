@@ -32,13 +32,10 @@ class DarwinSerialStream(PosixSerialStream):
     # Tiger or above can support arbitrary serial speeds
     if osx_version >= 8:
 
-        def _set_special_baudrate(self) -> None:
+        def _set_special_baudrate(self, fd: int) -> None:
             """
             Set custom baudrate
             """
-            if self._fd is None:
-                raise ClosedResourceError("Port is closed.")
-
             # use IOKit-specific call to set up high speeds
             buf = array.array("i", [self._baudrate])
-            fcntl.ioctl(self._fd, self.IOSSIOSPEED, buf, 1)
+            fcntl.ioctl(fd, self.IOSSIOSPEED, buf, 1)
