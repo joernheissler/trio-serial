@@ -96,6 +96,27 @@ class PosixSerialStream(AbstractSerialStream):
             trio.lowlevel.notify_closing(fd)
             os.close(fd)
 
+    async def discard_input(self) -> None:
+        """
+        Discard any unread input.
+        """
+        termios.tcflush(self.fd, termios.TCIFLUSH)
+
+    async def discard_output(self) -> None:
+        """
+        Discard any unwritten output.
+        """
+        termios.tcflush(self.fd, termios.TCOFLUSH)
+
+    async def send_break(self, duration: float = 0.25) -> None:
+        """
+        Transmit a continuous stream of zero-valued bits for a specific duration.
+
+        Params:
+            duration: Number of seconds
+        """
+        termios.tcsendbreak(self.fd, int(duration / 0.25))
+
     async def _send(self, data: memoryview) -> int:
         """
         Send :py:obj:`data` to the serial port. Partial writes are allowed.

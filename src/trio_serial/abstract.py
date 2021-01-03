@@ -157,6 +157,27 @@ class AbstractSerialStream(Stream, ABC):
         Do nothing if already closed.
         """
 
+    @abstractmethod
+    async def discard_input(self) -> None:
+        """
+        Discard any unread input.
+        """
+
+    @abstractmethod
+    async def discard_output(self) -> None:
+        """
+        Discard any unwritten output.
+        """
+
+    @abstractmethod
+    async def send_break(self, duration: float = 0.25) -> None:
+        """
+        Transmit a continuous stream of zero-valued bits for a specific duration.
+
+        Params:
+            duration: Number of seconds
+        """
+
     async def receive_some(self, max_bytes: Optional[int] = None) -> bytes:
         """
         Receive between 1 and :py:obj:`max_bytes` bytes from the serial port.
