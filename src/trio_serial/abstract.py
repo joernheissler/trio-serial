@@ -122,12 +122,6 @@ class AbstractSerialStream(Stream, ABC):
         await self.aopen()
         return self
 
-    async def __aexit__(self, *args, **kwargs) -> None:
-        """
-        Async context manager finished, close the port.
-        """
-        await self.aclose()
-
     def __del__(self) -> None:
         """
         Destructor. Closes the port if still open.

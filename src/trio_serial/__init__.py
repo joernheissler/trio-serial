@@ -12,9 +12,13 @@ from __future__ import annotations
 import os
 import sys
 
+from typing import Type
+
 from .abstract import AbstractSerialStream, Parity, StopBits
 
 if os.name == "posix":
+    SerialStream: Type[AbstractSerialStream]
+
     plat = sys.platform.lower()
     if plat.startswith("linux"):
         from .linux import LinuxSerialStream as SerialStream
