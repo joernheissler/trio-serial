@@ -9,7 +9,7 @@ for `trio <https://github.com/python-trio/trio>`__.
 .. _index.toc:
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Contents:
 
    install

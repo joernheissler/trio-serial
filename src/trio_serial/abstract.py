@@ -19,16 +19,36 @@ from trio.abc import Stream
 
 
 class Parity(Enum):
+    """
+    Enumeration of parity types.
+    """
+    #: No parity
     NONE = auto()
+
+    #: Even parity
     EVEN = auto()
+
+    #: Odd parity
     ODD = auto()
+
+    #: Parity bit always 1
     MARK = auto()
+
+    #: Parity bit always 0
     SPACE = auto()
 
 
 class StopBits(Enum):
+    """
+    Enumeration of stop bit lengths.
+    """
+    #: One bit
     ONE = auto()
+
+    #: One and a half bits
     ONE_POINT_FIVE = auto()
+
+    #: Two bits
     TWO = auto()
 
 
@@ -115,6 +135,7 @@ class AbstractSerialStream(Stream, ABC):
     async def __aenter__(self) -> AbstractSerialStream:
         """
         Enter the async context manager, open the port.
+        __aexit__ is inherited from the super class.
 
         Returns:
             self
