@@ -149,6 +149,16 @@ class AbstractSerialStream(Stream, ABC):
         """
         self.close()
 
+    @property
+    def port(self) -> str:
+        """
+        Get the port name.
+
+        Returns:
+            port name or device
+        """
+        return self._port
+
     @abstractmethod
     async def aclose(self) -> None:
         """
