@@ -2,11 +2,11 @@
 
 Changelog
 =========
-.. _changelog.0.x.x:
+.. _changelog.0.1.2:
 
-0.x.x - 202x-xx-xx
+0.1.2 - 2021-02-07
 ------------------
-.. note:: This version is not yet released and is under active development.
+ - More relaxed dependencies
 
 .. _changelog.0.1.1:
 
