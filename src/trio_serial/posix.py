@@ -81,7 +81,6 @@ class PosixSerialStream(AbstractSerialStream):
         self._fd = os.open(self._port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
         try:
             self._reconfigure_port(force_update=True)
-            await self._set_rts(self._rts_state)
         except BaseException:
             self.close()
             raise
@@ -154,7 +153,16 @@ class PosixSerialStream(AbstractSerialStream):
         """
         return self._get_bit(BIT_CTS)
 
-    async def _set_rts(self, value: bool) -> None:
+    async def get_rts(self) -> bool:
+        """
+        Retrieve current *Ready To Send* state.
+
+        Returns:
+            Current RTS state
+        """
+        return self._get_bit(BIT_RTS)
+
+    async def set_rts(self, value: bool) -> None:
         """
         Set *Ready To Send* state.
 
