@@ -81,9 +81,6 @@ class AbstractSerialStream(Stream, ABC):
     # Hardware Flow Control
     _rtscts: bool
 
-    # Current *Ready To Send* state
-    _rts_state: bool
-
     # Guard against parallel recv or send on the port.
     _recv_conflict_detector: ConflictDetector
     _send_conflict_detector: ConflictDetector
@@ -99,7 +96,6 @@ class AbstractSerialStream(Stream, ABC):
         stopbits: StopBits = StopBits.ONE,
         xonxoff: bool = False,
         rtscts: bool = False,
-        rts: bool = True
     ) -> None:
         """
         Create new SerialStream object.
@@ -114,7 +110,6 @@ class AbstractSerialStream(Stream, ABC):
             stopbits: Number of stop bits
             xonxoff: Software Flow Control with XON/XOFF
             rtscts: Hardware Flow Control with RTS/CTS
-            rts: Initial *Ready To Send* state
         """
         self._port = port
         self._exclusive = exclusive
@@ -124,7 +119,6 @@ class AbstractSerialStream(Stream, ABC):
         self._stopbits = stopbits
         self._xonxoff = xonxoff
         self._rtscts = rtscts
-        self._rts_state = rts
         self._recv_conflict_detector = ConflictDetector(
             "Another task is currently sending data on this SerialStream"
         )
@@ -249,16 +243,16 @@ class AbstractSerialStream(Stream, ABC):
             Current CTS state
         """
 
-    @property
-    def rts(self) -> bool:
+    @abstractmethod
+    async def get_rts(self) -> bool:
         """
         Retrieve current *Ready To Send* state.
 
         Returns:
             Current RTS state
         """
-        return self._rts_state
 
+    @abstractmethod
     async def set_rts(self, value: bool) -> None:
         """
         Set *Ready To Send* state.
@@ -266,8 +260,6 @@ class AbstractSerialStream(Stream, ABC):
         Args:
             value: New *Ready To Send* state
         """
-        await self._set_rts(value)
-        self._rts_state = value
 
     @abstractmethod
     async def _recv(self, max_bytes: Optional[int]) -> ByteString:
@@ -296,13 +288,4 @@ class AbstractSerialStream(Stream, ABC):
 
         Returns:
             Number of bytes actually written.
-        """
-
-    @abstractmethod
-    async def _set_rts(self, value: bool) -> None:
-        """
-        Set *Ready To Send* state.
-
-        Args:
-            value: New *Ready To Send* state
         """
