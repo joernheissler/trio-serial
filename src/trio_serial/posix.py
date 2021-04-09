@@ -52,6 +52,9 @@ class PosixSerialStream(AbstractSerialStream):
     # File descriptor for the serial device. `None` iff closed.
     _fd: Optional[int] = None
 
+    # Hang up on last close.
+    _hangup_on_close: bool = True
+
     @property
     def fd(self) -> int:
         """
@@ -171,6 +174,25 @@ class PosixSerialStream(AbstractSerialStream):
         """
         self._set_bit(BUF_RTS, value)
 
+    async def get_hangup(self) -> bool:
+        """
+        Retrieve current *Hangup on Close* state.
+
+        Returns:
+            Current *Hangup on Close* state
+        """
+        return self._hangup_on_close
+
+    async def set_hangup(self, value: bool) -> None:
+        """
+        Set *Hangup on Close* state.
+
+        Args:
+            value: New *Hangup on Close* state
+        """
+        self._hangup_on_close = value
+        self._reconfigure_port()
+
     def _set_bit(self, bit: bytes, value: bool) -> None:
         """
         Set or reset one of the modem bits.
@@ -207,7 +229,11 @@ class PosixSerialStream(AbstractSerialStream):
         Args:
             force_update: Set the parameters, even if did not change?
         """
-        fd = self.fd
+        try:
+            fd = self.fd
+        except ClosedResourceError:
+            # Don't try to configure a closed port. Next aopen will configure it.
+            return
 
         # Lock port
         if self._exclusive:
@@ -325,6 +351,12 @@ class PosixSerialStream(AbstractSerialStream):
                 cflag |= termios.CNEW_RTSCTS
             else:
                 cflag &= ~(termios.CNEW_RTSCTS)
+
+        # Setup Hangup on Close
+        if self._hangup_on_close:
+            cflag |= termios.HUPCL
+        else:
+            cflag &= ~termios.HUPCL
 
         # Use nonblocking operations with no buffers
         cc[termios.VMIN] = 0

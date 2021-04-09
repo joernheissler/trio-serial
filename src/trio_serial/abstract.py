@@ -22,6 +22,7 @@ class Parity(Enum):
     """
     Enumeration of parity types.
     """
+
     #: No parity
     NONE = auto()
 
@@ -42,6 +43,7 @@ class StopBits(Enum):
     """
     Enumeration of stop bit lengths.
     """
+
     #: One bit
     ONE = auto()
 
@@ -259,6 +261,24 @@ class AbstractSerialStream(Stream, ABC):
 
         Args:
             value: New *Ready To Send* state
+        """
+
+    @abstractmethod
+    async def get_hangup(self) -> bool:
+        """
+        Retrieve current *Hangup on Close* state.
+
+        Returns:
+            Current *Hangup on Close* state
+        """
+
+    @abstractmethod
+    async def set_hangup(self, value: bool) -> None:
+        """
+        Set *Hangup on Close* state.
+
+        Args:
+            value: New *Hangup on Close* state
         """
 
     @abstractmethod
