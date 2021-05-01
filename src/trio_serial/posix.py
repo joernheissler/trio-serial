@@ -72,7 +72,7 @@ class PosixSerialStream(AbstractSerialStream):
         """
         Close the port. Do nothing if already closed.
         """
-        self.close()
+        self._close(True)
 
     async def aopen(self) -> None:
         """
@@ -85,17 +85,29 @@ class PosixSerialStream(AbstractSerialStream):
         try:
             self._reconfigure_port(force_update=True)
         except BaseException:
-            self.close()
+            self._close()
             raise
 
-    def close(self) -> None:
+    def _close(self, notify_closing: bool = False) -> None:
         """
         Close the port. Do nothing if already closed.
+
+        Args:
+            notify_closing: Run trio's notify_closing: Any tasks waiting for the file descriptor
+                            to become ready will be aborted immediately. This must only be set
+                            in an async context.
         """
-        if self._fd is not None:
-            fd = self._fd
-            self._fd = None
-            trio.lowlevel.notify_closing(fd)
+        if self._fd is None:
+            return
+
+        fd = self._fd
+        self._fd = None
+        try:
+            # If the destructor is run this flag isn't required, because there cannot be
+            # any waiting tasks; if there were, the destructor wouldn't run.
+            if notify_closing:
+                trio.lowlevel.notify_closing(fd)
+        finally:
             os.close(fd)
 
     async def discard_input(self) -> None:
