@@ -143,7 +143,7 @@ class AbstractSerialStream(Stream, ABC):
         """
         Destructor. Closes the port if still open.
         """
-        self.close()
+        self._close()
 
     @property
     def port(self) -> str:
@@ -170,10 +170,11 @@ class AbstractSerialStream(Stream, ABC):
         """
 
     @abstractmethod
-    def close(self) -> None:
+    def _close(self) -> None:
         """
         Close the port as fast as possible, even if closing it quick+dirty.
-        If in doubt, use :py:meth:`aclose` or the async context manager.
+        Do not use this method directly. Instead use :py:meth:`aclose`
+        or the async context manager.
 
         Do nothing if already closed.
         """
