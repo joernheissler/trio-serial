@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "trio-serial"
-version = "0.2.1"
+version = "0.3.0"
 description = "Serial package for trio"
 authors = ["Jörn Heissler <nosuchaddress@joern-heissler.de>"]
 readme = "README.rst"
