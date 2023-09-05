@@ -208,10 +208,7 @@ class AbstractSerialStream(Stream, ABC):
             max_bytes: Maximum number of bytes to receive.
         """
         with self._recv_conflict_detector:
-            while True:
-                buf = await self._recv(max_bytes)
-                if buf:
-                    return bytes(buf)
+            return bytes(await self._recv(max_bytes))
 
     async def send_all(self, data: ByteString) -> None:
         """
