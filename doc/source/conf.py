@@ -23,7 +23,7 @@ copyright = '2020, Jörn Heissler'
 author = 'Jörn Heissler'
 
 # The full version, including alpha/beta/rc tags
-release = '0.1.0'
+release = '0.4.0'
 
 
 # -- General configuration ---------------------------------------------------

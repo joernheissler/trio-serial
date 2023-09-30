@@ -2,6 +2,15 @@
 
 Changelog
 =========
+.. _changelog.0.4.0:
+
+0.4.0 - 2023-09-30
+------------------
+* Remove loop on ``receive_some`` method.
+  (`#9 <https://github.com/joernheissler/trio-serial/pull/9>`__)
+
+* Update dependencies.
+
 .. _changelog.0.3.0:
 
 0.3.0 - 2021-05-15
