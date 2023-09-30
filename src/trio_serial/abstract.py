@@ -202,10 +202,14 @@ class AbstractSerialStream(Stream, ABC):
 
     async def receive_some(self, max_bytes: Optional[int] = None) -> bytes:
         """
-        Receive between 1 and :py:obj:`max_bytes` bytes from the serial port.
+        Receive some bytes from the serial port.
 
         Args:
             max_bytes: Maximum number of bytes to receive.
+
+        Returns:
+            On success, between 1 and :py:obj:`max_bytes` bytes.
+            On End-of-file (e.g. serial port is gone) an empty bytes object is returned.
         """
         with self._recv_conflict_detector:
             return bytes(await self._recv(max_bytes))
