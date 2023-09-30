@@ -38,7 +38,6 @@ extensions = [
     "sphinx.ext.coverage",
     "sphinx.ext.viewcode",
     "sphinx_rtd_theme",
-    "sphinxcontrib_trio",
 ]
 
 # Add any paths that contain templates here, relative to this directory.

@@ -11,9 +11,8 @@ documentation = "https://trio-serial.1e8.de/"
 [tool.poetry.dependencies]
 python = "^3.7"
 trio = ">=0.17,<1.0"
-Sphinx = { version = "^4.0", optional = true }
-sphinx-rtd-theme = { version = ">=0.5,<1.0", optional = true }
-sphinxcontrib-trio = { version = "^1.1", optional = true }
+sphinx = { version = "^7.2", optional = true }
+sphinx-rtd-theme = { version = "^1.3", optional = true }
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
@@ -22,7 +21,6 @@ pytest = "^5.2"
 docs = [
     "sphinx",
     "sphinx-rtd-theme",
-    "sphinxcontrib-trio",
 ]
 
 [build-system]
