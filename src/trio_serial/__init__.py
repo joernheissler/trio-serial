@@ -30,5 +30,7 @@ if os.name == "posix":
         from .bsd import BsdSerialStream as SerialStream
     else:
         from .posix import PosixSerialStream as SerialStream
+elif os.name =="nt":
+    from .windows import WindowsSerialStream as SerialStream
 else:
     raise ImportError(f"Platform {os.name!r} not supported.")
