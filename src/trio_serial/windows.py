@@ -10,26 +10,15 @@ from ._windows_cffi import (
     INVALID_HANDLE_VALUE,
     ErrorCodes,
     FileFlags,
-    Handle,
-    IoControlCodes,
-    WSAIoctls,
-    _handle,
-    _Overlapped,
     ffi,
     kernel32,
-    ntdll,
     raise_winerror,
-    ws2_32,
     CommEvtMask,
     CommTimeouts,
     Dcb,
     DcbParity,
 )
 from typing import cast
-
-# trio's win cffi doesn't define this
-GENERIC_WRITE = 0x40000000
-FILE_ATTRIBUTE_NORMAL = 0x00000080
 
 
 def _check(success):
@@ -65,11 +54,11 @@ class WindowsSerialStream(AbstractSerialStream):
 
             self._handle = kernel32.CreateFileW(
                 ffi.cast("LPCWSTR", rawname_buf),
-                GENERIC_WRITE | FileFlags.GENERIC_READ,
+                FileFlags.GENERIC_WRITE | FileFlags.GENERIC_READ,
                 0,  # exclusive access
                 ffi.NULL,  # no security attributes
                 FileFlags.OPEN_EXISTING,
-                FileFlags.FILE_FLAG_OVERLAPPED | FILE_ATTRIBUTE_NORMAL,
+                FileFlags.FILE_FLAG_OVERLAPPED | FileFlags.FILE_ATTRIBUTE_NORMAL,
                 ffi.NULL,  # no template file
             )
 
@@ -110,7 +99,7 @@ class WindowsSerialStream(AbstractSerialStream):
         Close the port. Do nothing if already closed.
 
         Args:
-            notify_closing: We need this for sockets, but not sure what is needed
+            notify_closing: We need this for sockets, but I don't think it is needed
             for {read,write}_overlapped operations. Need to test/read further.
         """
         if self._handle is None:
@@ -124,13 +113,13 @@ class WindowsSerialStream(AbstractSerialStream):
         """
         Discard any unread input.
         """
-        self._py_serial.reset_input_buffer()
+        raise NotImplementedError
 
     async def discard_output(self) -> None:
         """
         Discard any unwritten output.
         """
-        self._py_serial.reset_input_buffer()
+        raise NotImplementedError
 
     async def send_break(self, duration: float = 0.25) -> None:
         """
@@ -139,7 +128,7 @@ class WindowsSerialStream(AbstractSerialStream):
         Params:
             duration: Number of seconds
         """
-        # termios.tcsendbreak(self.fd, int(duration / 0.25))
+        raise NotImplementedError
 
     async def _send(self, data: memoryview) -> int:
         """
@@ -174,6 +163,7 @@ class WindowsSerialStream(AbstractSerialStream):
         # out into a bytestring to return it. 4096 is the default buffer size
         # from pyserial. Haven't thought any further about that yet...
         read_size = max_bytes or 4096
+        bytes_read = 0
         if read_size != len(self._read_buffer):
             self._read_buffer = bytearray(b"\x00" * read_size)
         while True:
@@ -197,7 +187,7 @@ class WindowsSerialStream(AbstractSerialStream):
         Returns:
             Current CTS state
         """
-        # return self._get_bit(BIT_CTS)
+        raise NotImplementedError
 
     async def get_rts(self) -> bool:
         """
@@ -206,7 +196,7 @@ class WindowsSerialStream(AbstractSerialStream):
         Returns:
             Current RTS state
         """
-        # return self._get_bit(BIT_RTS)
+        raise NotImplementedError
 
     async def set_rts(self, value: bool) -> None:
         """
@@ -215,7 +205,7 @@ class WindowsSerialStream(AbstractSerialStream):
         Args:
             value: New *Ready To Send* state
         """
-        # self._set_bit(BUF_RTS, value)
+        raise NotImplementedError
 
     async def get_hangup(self) -> bool:
         """
@@ -224,7 +214,7 @@ class WindowsSerialStream(AbstractSerialStream):
         Returns:
             Current *Hangup on Close* state
         """
-        # return self._hangup_on_close
+        raise NotImplementedError
 
     async def set_hangup(self, value: bool) -> None:
         """
@@ -233,37 +223,7 @@ class WindowsSerialStream(AbstractSerialStream):
         Args:
             value: New *Hangup on Close* state
         """
-        # self._hangup_on_close = value
-        # self._reconfigure_port()
-
-    def _set_bit(self, bit: bytes, value: bool) -> None:
-        """
-        Set or reset one of the modem bits.
-
-        Args:
-            bit: Modem bit constant as byte string
-            value: new state
-        """
-        # if value:
-        #     cmd = TIOCMBIS
-        # else:
-        #     cmd = TIOCMBIC
-        #
-        # fcntl.ioctl(self.fd, cmd, bit)
-
-    def _get_bit(self, bit: int) -> bool:
-        """
-        Get one of the modem bits.
-
-        Arg:
-            bit: Modem bit constant as integer
-
-        Returns:
-            Current state
-        """
-        # buf = fcntl.ioctl(self.fd, TIOCMGET, BUF_ZERO)
-        # value = unpack("@I", buf)[0]
-        # return bool(value & bit)
+        raise NotImplementedError
 
     def _reconfigure_port(self, force_update: bool = False) -> None:
         """
@@ -281,20 +241,6 @@ class WindowsSerialStream(AbstractSerialStream):
         dcb.BaudRate = self._baudrate
         dcb.fBinary = 1  # must be true
         dcb.fParity = 1 if self._parity == Parity.NONE else 0
-        dcb.fOutxCtsFlow = 0  # not implemented
-        dcb.fOutxCtsFlow = 0  # not implemented
-        dcb.fDtrControl = 0  # not implemented
-        dcb.fDsrSensitivity = 0  # not implemented
-        dcb.fOutX = 0
-        dcb.fInX = 0
-        dcb.fErrorChar = 0
-        dcb.fNull = 0
-        dcb.fRtsControl = 0
-        dcb.fAbortOnError = 0
-        dcb.fDummy2 = 0
-        dcb.wReserved = 0  # must be zero
-        dcb.XonLim = 0
-        dcb.XoffLim = 0
         dcb.ByteSize = self._bytesize
 
         if self._parity == Parity.NONE:
@@ -319,6 +265,21 @@ class WindowsSerialStream(AbstractSerialStream):
         else:
             raise ValueError(f"Invalid stop bit specification: {self._stopbits}")
 
+        # off of this is unimplemented at the moment.
+        dcb.fOutxCtsFlow = 0
+        dcb.fOutxCtsFlow = 0
+        dcb.fDtrControl = 0
+        dcb.fDsrSensitivity = 0
+        dcb.fOutX = 0
+        dcb.fInX = 0
+        dcb.fErrorChar = 0
+        dcb.fNull = 0
+        dcb.fRtsControl = 0
+        dcb.fAbortOnError = 0
+        dcb.fDummy2 = 0
+        dcb.wReserved = 0  # must be zero
+        dcb.XonLim = 0
+        dcb.XoffLim = 0
         dcb.XonChar = b"\x11"
         dcb.XoffChar = b"\x13"
         dcb.ErrorChar = b"\x00"

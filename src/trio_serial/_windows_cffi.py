@@ -624,6 +624,8 @@ class FileFlags(enum.IntFlag):
     OPEN_EXISTING = 3
     OPEN_ALWAYS = 4
     TRUNCATE_EXISTING = 5
+    GENERIC_WRITE = 0x40000000
+    FILE_ATTRIBUTE_NORMAL = 0x00000080
 
 
 class AFDPollFlags(enum.IntFlag):
