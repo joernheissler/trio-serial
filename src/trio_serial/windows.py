@@ -1,14 +1,41 @@
 from __future__ import annotations
 
-import array
-from typing import ByteString, Dict, Optional
+from typing import Optional
 
 import trio.lowlevel
-from trio import ClosedResourceError
 
 from .abstract import AbstractSerialStream, Parity, StopBits
-import serial
-import ctypes
+
+from ._windows_cffi import (
+    INVALID_HANDLE_VALUE,
+    ErrorCodes,
+    FileFlags,
+    Handle,
+    IoControlCodes,
+    WSAIoctls,
+    _handle,
+    _Overlapped,
+    ffi,
+    kernel32,
+    ntdll,
+    raise_winerror,
+    ws2_32,
+    CommEvtMask,
+    CommTimeouts,
+    Dcb,
+    DcbParity,
+)
+from typing import cast
+
+# trio's win cffi doesn't define this
+GENERIC_WRITE = 0x40000000
+FILE_ATTRIBUTE_NORMAL = 0x00000080
+
+
+def _check(success):
+    if not success:
+        raise_winerror()
+    return success
 
 
 class WindowsSerialStream(AbstractSerialStream):
@@ -19,9 +46,6 @@ class WindowsSerialStream(AbstractSerialStream):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # to get started just use a pyserial to open the file and do all the configuration.
-        # we reach into the Serial instance to grab is _port_handle
-        self._py_serial: serial.Serial | None = None
         self._handle = None
         self._read_buffer = bytearray()
 
@@ -35,26 +59,51 @@ class WindowsSerialStream(AbstractSerialStream):
         """
         Open the port and configure it with the initial state from :py:method:`__init__`.
         """
-        if self._py_serial is None:
-            self._py_serial = serial.Serial(
-                port=self._port,
-                baudrate=self._baudrate,
-                bytesize=self._bytesize,
-                stopbits=2
-                # just use the defaults for now...
-                # parity=self._parity.value,
-                # stopbits=self._stopbits.value,
-                # xonxoff=self._xonxoff,
-                # rtscts=self._rtscts,
-            )
-            self._handle = self._py_serial._port_handle
 
-            timeouts = serial.win32.COMMTIMEOUTS()
-            timeouts.ReadIntervalTimeout = 0
-            timeouts.ReadTotalTimeoutMultiplier = 0
-            timeouts.ReadTotalTimeoutConstant = 0
-            serial.win32.SetCommTimeouts(self._handle, ctypes.byref(timeouts))
+        if self._handle is None:
+            rawname_buf = ffi.from_buffer(self._port.encode("utf-16le") + b"\0\0")
+
+            self._handle = kernel32.CreateFileW(
+                ffi.cast("LPCWSTR", rawname_buf),
+                GENERIC_WRITE | FileFlags.GENERIC_READ,
+                0,  # exclusive access
+                ffi.NULL,  # no security attributes
+                FileFlags.OPEN_EXISTING,
+                FileFlags.FILE_FLAG_OVERLAPPED | FILE_ATTRIBUTE_NORMAL,
+                ffi.NULL,  # no template file
+            )
+
+            if self._handle == INVALID_HANDLE_VALUE:
+                raise_winerror()
+
+            _check(kernel32.ClearCommError(self._handle, ffi.NULL, ffi.NULL))
+            _check(kernel32.SetCommMask(self._handle, CommEvtMask.EV_ERR))
+
+            timeouts = cast(CommTimeouts, ffi.new("LPCOMMTIMEOUTS"))
+            # https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-commtimeouts
+            # If an application sets ReadIntervalTimeout and ReadTotalTimeoutMultiplier
+            # to MAXDWORD and sets ReadTotalTimeoutConstant to a value greater than
+            # zero and less than MAXDWORD, one of the following occurs when the ReadFile
+            # function is called:
+            # - If there are any bytes in the input buffer, ReadFile returns immediately
+            #   with the bytes in the buffer.
+            # - If there are no bytes in the input buffer, ReadFile waits until a byte
+            #   arrives and then returns immediately.
+            # - If no bytes arrive within the time specified by ReadTotalTimeoutConstant,
+            #   ReadFile times out.
+            #
+            # So using that, we loop on a timeout and retry. Even though it's a long
+            # with is very unlikely to ever happen in real code.
+            timeouts.ReadIntervalTimeout = 0xFFFF_FFFF
+            timeouts.ReadTotalTimeoutMultiplier = 0xFFFF_FFFF
+            timeouts.ReadTotalTimeoutConstant = 0xFFFF_FFFF - 1  # approx. 49 days...
+            timeouts.WriteTotalTimeoutMultiplier = 0
+            timeouts.WriteTotalTimeoutConstant = 0
+            _check(kernel32.SetCommTimeouts(self._handle, timeouts))
+
             trio.lowlevel.register_with_iocp(self._handle)
+
+            self._reconfigure_port()
 
     def _close(self, notify_closing: bool = False) -> None:
         """
@@ -64,13 +113,12 @@ class WindowsSerialStream(AbstractSerialStream):
             notify_closing: We need this for sockets, but not sure what is needed
             for {read,write}_overlapped operations. Need to test/read further.
         """
-        if self._py_serial is None:
+        if self._handle is None:
             return
 
-        py_serial = self._py_serial
-        self._py_serial = None
+        handle = self._handle
         self._handle = None
-        py_serial.close()
+        _check(kernel32.CloseHandle(handle))
 
     async def discard_input(self) -> None:
         """
@@ -128,8 +176,18 @@ class WindowsSerialStream(AbstractSerialStream):
         read_size = max_bytes or 4096
         if read_size != len(self._read_buffer):
             self._read_buffer = bytearray(b"\x00" * read_size)
+        while True:
+            try:
+                bytes_read = await trio.lowlevel.readinto_overlapped(
+                    self._handle, self._read_buffer
+                )
+                break
+            except OSError as exc:
+                if exc.winerror == ErrorCodes.ERROR_TIMEOUT:
+                    print("rx timeout")
+                    continue
+                raise
 
-        bytes_read = await trio.lowlevel.readinto_overlapped(self._handle, self._read_buffer)
         return self._read_buffer[:bytes_read]
 
     async def get_cts(self) -> bool:
@@ -214,150 +272,58 @@ class WindowsSerialStream(AbstractSerialStream):
         Args:
             force_update: Set the parameters, even if did not change?
         """
-        # try:
-        #     fd = self.fd
-        # except ClosedResourceError:
-        #     # Don't try to configure a closed port. Next aopen will configure it.
-        #     return
-        #
-        # # Lock port
-        # if self._exclusive:
-        #     try:
-        #         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        #     except IOError as ex:
-        #         raise IOError(f"Could not exclusively lock port {self._port!r}: {ex!s}") from ex
-        # else:
-        #     fcntl.flock(fd, fcntl.LOCK_UN)
-        #
-        # # Retrieve current attributes
-        # orig_attr = termios.tcgetattr(fd)
-        # iflag, oflag, cflag, lflag, ispeed, ospeed, cc = orig_attr
-        #
-        # # Set up raw mode / no echo / binary
-        # cflag |= termios.CLOCAL | termios.CREAD
-        # lflag &= ~(
-        #         termios.ICANON
-        #         | termios.ECHO
-        #         | termios.ECHOE
-        #         | termios.ECHOK
-        #         | termios.ECHONL
-        #         | termios.ISIG
-        #         | termios.IEXTEN
-        # )
-        #
-        # # Netbsd workaround for Erk
-        # for flag in ("ECHOCTL", "ECHOKE"):
-        #     if hasattr(termios, flag):
-        #         lflag &= ~getattr(termios, flag)
-        #
-        # oflag &= ~(termios.OPOST | termios.ONLCR | termios.OCRNL)
-        # iflag &= ~(termios.INLCR | termios.IGNCR | termios.ICRNL | termios.IGNBRK)
-        #
-        # if hasattr(termios, "IUCLC"):
-        #     iflag &= ~termios.IUCLC
-        #
-        # if hasattr(termios, "PARMRK"):
-        #     iflag &= ~termios.PARMRK
-        #
-        # # Setup baud rate
-        # custom_baud = False
-        # try:
-        #     ispeed = ospeed = getattr(termios, f"B{self._baudrate}")
-        # except AttributeError:
-        #     try:
-        #         ispeed = ospeed = self.BAUDRATE_CONSTANTS[self._baudrate]
-        #     except KeyError:
-        #         # See if BOTHER is defined for this platform; if it is, use
-        #         # this for a speed not defined in the baudrate constants list.
-        #         try:
-        #             ispeed = ospeed = self.BOTHER
-        #         except AttributeError:
-        #             # may need custom baud rate, it isn't in our list.
-        #             ispeed = ospeed = termios.B38400
-        #
-        #         custom_baud = True
-        #
-        # # Setup char len
-        # cflag &= ~termios.CSIZE
-        # try:
-        #     cflag |= getattr(termios, f"CS{self._bytesize}")
-        # except AttributeError as ex:
-        #     raise ValueError(f"Invalid char len: {self._bytesize}") from ex
-        #
-        # # Setup stop bits
-        # if self._stopbits == StopBits.ONE:
-        #     cflag &= ~termios.CSTOPB
-        # elif self._stopbits == StopBits.ONE_POINT_FIVE:
-        #     # XXX same as TWO.. there is no POSIX support for 1.5
-        #     cflag |= termios.CSTOPB
-        # elif self._stopbits == StopBits.TWO:
-        #     cflag |= termios.CSTOPB
-        # else:
-        #     raise ValueError(f"Invalid stop bit specification: {self._stopbits}")
-        #
-        # # Setup parity
-        # iflag &= ~(termios.INPCK | termios.ISTRIP)
-        # if self._parity == Parity.NONE:
-        #     cflag &= ~(termios.PARENB | termios.PARODD | self.CMSPAR)
-        # elif self._parity == Parity.EVEN:
-        #     cflag &= ~(termios.PARODD | self.CMSPAR)
-        #     cflag |= termios.PARENB
-        # elif self._parity == Parity.ODD:
-        #     cflag &= ~self.CMSPAR
-        #     cflag |= termios.PARENB | termios.PARODD
-        # elif self._parity == Parity.MARK and self.CMSPAR:
-        #     cflag |= termios.PARENB | self.CMSPAR | termios.PARODD
-        # elif self._parity == Parity.SPACE and self.CMSPAR:
-        #     cflag |= termios.PARENB | self.CMSPAR
-        #     cflag &= ~(termios.PARODD)
-        # else:
-        #     raise ValueError(f"Invalid parity: {self._parity}")
-        #
-        # # Setup XON/XOFF flow control
-        # if hasattr(termios, "IXANY"):
-        #     if self._xonxoff:
-        #         iflag |= termios.IXON | termios.IXOFF  # |termios.IXANY)
-        #     else:
-        #         iflag &= ~(termios.IXON | termios.IXOFF | termios.IXANY)
-        # else:
-        #     if self._xonxoff:
-        #         iflag |= termios.IXON | termios.IXOFF
-        #     else:
-        #         iflag &= ~(termios.IXON | termios.IXOFF)
-        #
-        # # Setup RTS/CTS flow control
-        # if hasattr(termios, "CRTSCTS"):
-        #     if self._rtscts:
-        #         cflag |= termios.CRTSCTS
-        #     else:
-        #         cflag &= ~(termios.CRTSCTS)
-        # elif hasattr(termios, "CNEW_RTSCTS"):  # try it with alternate constant name
-        #     if self._rtscts:
-        #         cflag |= termios.CNEW_RTSCTS
-        #     else:
-        #         cflag &= ~(termios.CNEW_RTSCTS)
-        #
-        # # Setup Hangup on Close
-        # if self._hangup_on_close:
-        #     cflag |= termios.HUPCL
-        # else:
-        #     cflag &= ~termios.HUPCL
-        #
-        # # Use nonblocking operations with no buffers
-        # cc[termios.VMIN] = 0
-        # cc[termios.VTIME] = 0
-        #
-        # new_attr = [iflag, oflag, cflag, lflag, ispeed, ospeed, cc]
-        #
-        # if force_update or new_attr != orig_attr:
-        #     termios.tcsetattr(fd, termios.TCSANOW, new_attr)
-        #
-        # # apply custom baud rate, if any
-        # if custom_baud:
-        #     self._set_special_baudrate(fd)
+        if self._handle is None:
+            return
 
-    def _set_special_baudrate(self, fd: int) -> None:
-        """
-        Implemented by sub classes
-        """
-        raise NotImplementedError("Non-standard baudrates are not supported on this platform")
+        dcb = cast(Dcb, ffi.new("LPDCB"))
+
+        dcb.DCBlength = ffi.sizeof("DCB")
+        dcb.BaudRate = self._baudrate
+        dcb.fBinary = 1  # must be true
+        dcb.fParity = 1 if self._parity == Parity.NONE else 0
+        dcb.fOutxCtsFlow = 0  # not implemented
+        dcb.fOutxCtsFlow = 0  # not implemented
+        dcb.fDtrControl = 0  # not implemented
+        dcb.fDsrSensitivity = 0  # not implemented
+        dcb.fOutX = 0
+        dcb.fInX = 0
+        dcb.fErrorChar = 0
+        dcb.fNull = 0
+        dcb.fRtsControl = 0
+        dcb.fAbortOnError = 0
+        dcb.fDummy2 = 0
+        dcb.wReserved = 0  # must be zero
+        dcb.XonLim = 0
+        dcb.XoffLim = 0
+        dcb.ByteSize = self._bytesize
+
+        if self._parity == Parity.NONE:
+            dcb.Parity = DcbParity.NOPARITY
+        elif self._parity == Parity.EVEN:
+            dcb.Parity = DcbParity.EVENPARITY
+        elif self._parity == Parity.ODD:
+            dcb.Parity = DcbParity.ODDPARITY
+        elif self._parity == Parity.MARK:
+            dcb.Parity = DcbParity.MARKPARITY
+        elif self._parity == Parity.SPACE:
+            dcb.Parity = DcbParity.SPACEPARITY
+        else:
+            raise ValueError(f"Invalid parity: {self._parity}")
+
+        if self._stopbits == StopBits.ONE:
+            dcb.StopBits = 0
+        elif self._stopbits == StopBits.ONE_POINT_FIVE:
+            dcb.StopBits = 1
+        elif self._stopbits == StopBits.TWO:
+            dcb.StopBits = 2
+        else:
+            raise ValueError(f"Invalid stop bit specification: {self._stopbits}")
+
+        dcb.XonChar = b"\x11"
+        dcb.XoffChar = b"\x13"
+        dcb.ErrorChar = b"\x00"
+        dcb.EofChar = b"\x00"
+        dcb.EvtChar = b"\x00"
+        dcb.wReserved1 = 0
+
+        _check(kernel32.SetCommState(self._handle, dcb))
